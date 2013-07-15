@@ -3,6 +3,7 @@ try:
 except NameError:
     from sets import Set as set
 
+import math
 from django import template
 from django.http import Http404
 from django.core.paginator import Paginator, InvalidPage
@@ -12,6 +13,8 @@ register = template.Library()
 
 DEFAULT_PAGINATION = getattr(settings, 'PAGINATION_DEFAULT_PAGINATION', 20)
 DEFAULT_WINDOW = getattr(settings, 'PAGINATION_DEFAULT_WINDOW', 4)
+DEFAULT_CENTER_WINDOW = getattr(settings, 'PAGINATION_DEFAULT_CENTER_WINDOW', DEFAULT_WINDOW * 2)
+DEFAULT_BOUNDARY_WINDOW = getattr(settings, 'PAGINATION_DEFAULT_BOUNDARY_WINDOW', DEFAULT_WINDOW)
 DEFAULT_ORPHANS = getattr(settings, 'PAGINATION_DEFAULT_ORPHANS', 0)
 INVALID_PAGE_RAISES_404 = getattr(settings,
     'PAGINATION_INVALID_PAGE_RAISES_404', False)
@@ -105,7 +108,7 @@ class AutoPaginateNode(template.Node):
         return u''
 
 
-def paginate(context, window=DEFAULT_WINDOW, hashtag=''):
+def paginate(context, c_window=DEFAULT_CENTER_WINDOW, b_window=DEFAULT_BOUNDARY_WINDOW, hashtag=''):
     """
     Renders the ``pagination/pagination.html`` template, resulting in a
     Digg-like display of the available pages, given the current page.  If there
@@ -139,16 +142,17 @@ def paginate(context, window=DEFAULT_WINDOW, hashtag=''):
         records['last'] = records['first'] + paginator.per_page - 1
         if records['last'] + paginator.orphans >= paginator.count:
             records['last'] = paginator.count
+        
         # First and last are simply the first *n* pages and the last *n* pages,
-        # where *n* is the current window size.
-        first = set(page_range[:window])
-        last = set(page_range[-window:])
+        # where *n* is the current boundary window size.
+        first = set(page_range[:b_window])
+        last = set(page_range[-b_window:])
         # Now we look around our current page, making sure that we don't wrap
         # around.
-        current_start = page_obj.number-1-window
+        current_start = page_obj.number-1-int(math.floor(c_window/2.0))
         if current_start < 0:
             current_start = 0
-        current_end = page_obj.number-1+window
+        current_end = page_obj.number-1+int(math.ceil(c_window/2.0))
         if current_end < 0:
             current_end = 0
         current = set(page_range[current_start:current_end])
@@ -179,6 +183,16 @@ def paginate(context, window=DEFAULT_WINDOW, hashtag=''):
         else:
             unioned = list(first.union(current))
             unioned.sort()
+            # Let's take advantage of free places left
+            # from overlapping pages to show as much pages as
+            # possible according to the windows (center and left) boundary
+            leftover = c_window + b_window - len(unioned)
+            if leftover:
+                adjust = page_range[unioned[-1]:unioned[-1] + leftover]
+                unioned.extend(adjust)
+                unioned.sort()
+                current = set(unioned)
+            
             pages.extend(unioned)
         # If there's no overlap between the current set of pages and the last
         # set of pages, then there's a possible need for elusion.
@@ -203,7 +217,19 @@ def paginate(context, window=DEFAULT_WINDOW, hashtag=''):
         else:
             differenced = list(last.difference(current))
             differenced.sort()
+            first_list = list(current)
+            first_list.sort()
+            # Let's take advantage of free places left
+            # from overlapping pages to show as much pages as
+            # possible according to the windows (center and right) boundary
+            leftover = c_window + b_window - (len(current) + len(differenced))
+            if leftover:
+                adjust = page_range[first_list[0] - 1 - leftover:first_list[0] - 1]
+                skip_list = pages[:-len(first_list)]
+                pages = skip_list + adjust + pages[len(skip_list):]
+
             pages.extend(differenced)
+        
         to_return = {
             'MEDIA_URL': settings.MEDIA_URL,
             'pages': pages,
