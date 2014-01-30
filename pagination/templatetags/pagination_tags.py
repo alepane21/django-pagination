@@ -138,8 +138,8 @@ def paginate(context, c_window=DEFAULT_CENTER_WINDOW, b_window=DEFAULT_BOUNDARY_
         page_obj = context['page_obj']
         page_range = paginator.page_range
         # Calculate the record range in the current page for display.
-        records = {'first': 1 + (page_obj.number - 1) * paginator.per_page}
-        records['last'] = records['first'] + paginator.per_page - 1
+        records = {'first': page_obj.start_index() }
+        records['last'] = page_obj.end_index()
         if records['last'] + paginator.orphans >= paginator.count:
             records['last'] = paginator.count
         
@@ -237,7 +237,7 @@ def paginate(context, c_window=DEFAULT_CENTER_WINDOW, b_window=DEFAULT_BOUNDARY_
             'page_obj': page_obj,
             'paginator': paginator,
             'hashtag': hashtag,
-            'is_paginated': paginator.count > paginator.per_page,
+            'is_paginated': len(page_range) > 1,
         }
         if 'request' in context:
             to_return['request_path'] = context['request'].path
